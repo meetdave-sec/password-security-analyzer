@@ -2,7 +2,7 @@ import re
 import math
 
 COMMON_PATTERNS = [
-    "1234", "password", "qwerty", "admin", "letmein, 1234567890"
+    "1234", "password", "qwerty", "admin", "letmein", "1234567890"
 ]
 
 def estimate_entropy(password: str) -> float:

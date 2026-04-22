@@ -12,8 +12,8 @@ def main():
 
     if result["issues"]:
         print("Issues detected:")
-        for isuue in result["issues"]:
-            print(f"- {isuue}")
+        for issue in result["issues"]:
+            print(f"- {issue}")
 
     else:
         print("No major issues detected.")        
