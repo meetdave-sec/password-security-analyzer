@@ -45,19 +45,19 @@ def detect_keyboard_patterns(password: str):
     return any(pattern in lower for pattern in KEYBOARD_PATTERNS)
 
 
-# ✅ NEW: STRUCTURE DETECTION (THIS WAS MISSING)
 def detect_weak_structure(password: str):
     findings = []
 
-    # letters + numbers (Meet123)
-    if re.match(r"^[A-Za-z]+[0-9]+$", password):
+    # Only flag simple whole-password structures, not coincidental sub-matches.
+    # Pattern: ALL letters then ALL digits, nothing else (e.g. "Meet123", "hello99")
+    if re.fullmatch(r"[A-Za-z]+[0-9]+", password):
         findings.append("predictable pattern: letters followed by numbers")
 
-    # word + symbol + numbers (Meet@123)
-    if re.match(r"^[A-Za-z]+[^A-Za-z0-9]+[0-9]+$", password):
+    # Pattern: ALL letters, then ONE symbol block, then ALL digits (e.g. "Meet@123")
+    if re.fullmatch(r"[A-Za-z]+[^A-Za-z0-9]+[0-9]+", password):
         findings.append("predictable pattern: word + symbol + numbers")
 
-    # repeated characters (aaa, 111)
+    # Repeated characters anywhere (aaa, 111) — fine to check globally
     if re.search(r"(.)\1{2,}", password):
         findings.append("repeated characters detected")
 
@@ -75,8 +75,8 @@ def classify_strength(score: int) -> str:
         return "Strong"
     else:
         return "Very Strong"
-    
-    
+
+
 def detect_sequences(password: str):
     findings = []
     lower = password.lower()
@@ -87,18 +87,20 @@ def detect_sequences(password: str):
     ]
 
     for seq in sequences:
-        # check forward sequences
+        # Forward: stop at first match to avoid flooding with overlapping windows
         for i in range(len(seq) - 3):
             pattern = seq[i:i+4]
             if pattern in lower:
                 findings.append(f"sequential pattern detected: {pattern}")
+                break
 
-        # check reverse sequences
+        # Reverse: same — report once
         rev_seq = seq[::-1]
         for i in range(len(rev_seq) - 3):
             pattern = rev_seq[i:i+4]
             if pattern in lower:
                 findings.append(f"reverse sequential pattern detected: {pattern}")
+                break
 
     return findings
 
@@ -107,27 +109,25 @@ def analyze_password(password: str):
     entropy = estimate_entropy(password)
 
     issues = check_common_patterns(password)
-   
+
     if detect_keyboard_patterns(password):
         issues.append("keyboard pattern detected")
-   
+
     structure_issues = detect_weak_structure(password)
     issues.extend(structure_issues)
 
     sequence_issues = detect_sequences(password)
     issues.extend(sequence_issues)
 
-
     score = 0
 
- 
-    if len(password) >= 12:
-        score += 25
-    elif len(password) >= 8:
-        score += 15
-    else:
+    if len(password) < 8:
+        issues.append("password must contain at least 8 characters")
         score += 5
-
+    elif len(password) >= 12:
+        score += 25
+    else:
+        score += 15
 
     if entropy > 60:
         score += 30
@@ -136,10 +136,16 @@ def analyze_password(password: str):
     else:
         score += 10
 
-    
-    score -= len(issues) * 15
+    # Graduated penalty so one minor issue doesn't tank a strong password
+    for issue in issues:
+        lower_issue = issue.lower()
+        if any(k in lower_issue for k in ("common pattern", "keyboard pattern", "at least 8")):
+            score -= 15  # critical
+        elif any(k in lower_issue for k in ("sequential", "repeated")):
+            score -= 8   # moderate
+        else:
+            score -= 5   # minor (predictable structure)
 
-    
     score = max(0, min(score, 100))
 
     return {
@@ -148,3 +154,23 @@ def analyze_password(password: str):
         "entropy": round(entropy, 2),
         "issues": issues
     }
+
+
+if __name__ == "__main__":
+    samples = [
+        "abc",
+        "password",
+        "Meet123",
+        "Meet@123",
+        "qwerty123",
+        "Tr0ub4dor&3",
+        "correct-horse-Battery-staple!9",
+        "X#9mK!vQ2@pL",
+    ]
+
+    for pw in samples:
+        r = analyze_password(pw)
+        print(f"{pw:<35} score={r['score']:>3}  {r['strength']:<12}  entropy={r['entropy']:.1f}")
+        for issue in r["issues"]:
+            print(f"  ⚠ {issue}")
+        print()
