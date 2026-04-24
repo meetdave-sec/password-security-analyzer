@@ -48,21 +48,42 @@ def detect_keyboard_patterns(password: str):
 def detect_weak_structure(password: str):
     findings = []
 
-    # Only flag simple whole-password structures, not coincidental sub-matches.
-    # Pattern: ALL letters then ALL digits, nothing else (e.g. "Meet123", "hello99")
     if re.fullmatch(r"[A-Za-z]+[0-9]+", password):
         findings.append("predictable pattern: letters followed by numbers")
 
-    # Pattern: ALL letters, then ONE symbol block, then ALL digits (e.g. "Meet@123")
     if re.fullmatch(r"[A-Za-z]+[^A-Za-z0-9]+[0-9]+", password):
         findings.append("predictable pattern: word + symbol + numbers")
 
-    # Repeated characters anywhere (aaa, 111) — fine to check globally
     if re.search(r"(.)\1{2,}", password):
         findings.append("repeated characters detected")
 
     return findings
 
+
+def detect_sequences(password: str):
+    findings = []
+    lower = password.lower()
+
+    sequences = [
+        "abcdefghijklmnopqrstuvwxyz",
+        "0123456789"
+    ]
+
+    for seq in sequences:
+        for i in range(len(seq) - 3):
+            pattern = seq[i:i+4]
+            if pattern in lower:
+                findings.append(f"sequential pattern detected: {pattern}")
+                break
+
+        rev_seq = seq[::-1]
+        for i in range(len(rev_seq) - 3):
+            pattern = rev_seq[i:i+4]
+            if pattern in lower:
+                findings.append(f"reverse sequential pattern detected: {pattern}")
+                break
+
+    return findings
 
 def classify_strength(score: int) -> str:
     if score <= 30:
@@ -77,75 +98,49 @@ def classify_strength(score: int) -> str:
         return "Very Strong"
 
 
-def detect_sequences(password: str):
-    findings = []
-    lower = password.lower()
-
-    sequences = [
-        "abcdefghijklmnopqrstuvwxyz",
-        "0123456789"
-    ]
-
-    for seq in sequences:
-        # Forward: stop at first match to avoid flooding with overlapping windows
-        for i in range(len(seq) - 3):
-            pattern = seq[i:i+4]
-            if pattern in lower:
-                findings.append(f"sequential pattern detected: {pattern}")
-                break
-
-        # Reverse: same — report once
-        rev_seq = seq[::-1]
-        for i in range(len(rev_seq) - 3):
-            pattern = rev_seq[i:i+4]
-            if pattern in lower:
-                findings.append(f"reverse sequential pattern detected: {pattern}")
-                break
-
-    return findings
-
-
 def analyze_password(password: str):
     entropy = estimate_entropy(password)
 
-    issues = check_common_patterns(password)
+    issues = []
+    issues.extend(check_common_patterns(password))
 
     if detect_keyboard_patterns(password):
         issues.append("keyboard pattern detected")
 
-    structure_issues = detect_weak_structure(password)
-    issues.extend(structure_issues)
+    issues.extend(detect_weak_structure(password))
+    issues.extend(detect_sequences(password))
 
-    sequence_issues = detect_sequences(password)
-    issues.extend(sequence_issues)
-
-    score = 0
-
-    if len(password) < 8:
-        issues.append("password must contain at least 8 characters")
-        score += 5
-    elif len(password) >= 12:
-        score += 25
+    if entropy >= 80:
+        entropy_score = 90
+    elif entropy >= 60:
+        entropy_score = 75
+    elif entropy >= 40:
+        entropy_score = 55
+    elif entropy >= 20:
+        entropy_score = 35
     else:
-        score += 15
+        entropy_score = 10
 
-    if entropy > 60:
-        score += 30
-    elif entropy > 40:
-        score += 20
-    else:
-        score += 10
 
-    # Graduated penalty so one minor issue doesn't tank a strong password
+    length_bonus = min(len(password) * 2, 20)
+
+ 
+    penalty = 0
+
     for issue in issues:
-        lower_issue = issue.lower()
-        if any(k in lower_issue for k in ("common pattern", "keyboard pattern", "at least 8")):
-            score -= 15  # critical
-        elif any(k in lower_issue for k in ("sequential", "repeated")):
-            score -= 8   # moderate
-        else:
-            score -= 5   # minor (predictable structure)
+        issue_lower = issue.lower()
 
+        if "common pattern" in issue_lower or "keyboard" in issue_lower:
+            penalty += 20
+        elif "sequential" in issue_lower or "too short" in issue_lower:
+            penalty += 15
+        else:
+            penalty += 5
+
+    penalty = min(penalty, 40)
+
+  
+    score = entropy_score + length_bonus - penalty
     score = max(0, min(score, 100))
 
     return {
@@ -154,6 +149,7 @@ def analyze_password(password: str):
         "entropy": round(entropy, 2),
         "issues": issues
     }
+
 
 
 if __name__ == "__main__":
